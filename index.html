@@ -91,6 +91,9 @@
     const keys = new Set();
     let gameOver = false;
     let victory = false;
+    let respawnTimeout = null;
+    let overlayText = "";
+    let overlaySubtext = "";
 
     const player = {
       w: 34,
@@ -141,9 +144,15 @@
     }
 
     function resetGame() {
+      if (respawnTimeout) {
+        clearTimeout(respawnTimeout);
+        respawnTimeout = null;
+      }
       level = createLevel();
       gameOver = false;
       victory = false;
+      overlayText = "";
+      overlaySubtext = "";
       hudStatus.textContent = "Move with ← →, Jump with W/↑/Space";
       resetPlayer();
       updateCoins();
@@ -155,6 +164,8 @@
       if (collected === level.coins.length && !victory) {
         victory = true;
         hudStatus.textContent = "You collected all coins! Press Enter to replay.";
+        overlayText = "You win!";
+        overlaySubtext = "Press Enter to restart";
         gameOver = true;
       }
     }
@@ -227,7 +238,7 @@
 
       // Death from falling
       if (player.y > canvas.height + 200) {
-        endGame("You fell! Press Enter to restart.");
+        endGame("You fell! Respawning...", { autoRestart: true });
       }
     }
 
@@ -254,16 +265,26 @@
             enemy.alive = false;
             player.vy = -9;
           } else {
-            endGame("Stomped by a Goomba! Press Enter to restart.");
+            endGame("Stomped by a Goomba! Respawning...", { autoRestart: true });
           }
         }
       }
     }
 
-    function endGame(message) {
+    function endGame(message, { autoRestart = false } = {}) {
       if (!gameOver) {
         gameOver = true;
         hudStatus.textContent = message;
+        overlayText = victory ? "You win!" : message;
+        overlaySubtext = autoRestart
+          ? "Respawning shortly..."
+          : "Press Enter to restart";
+
+        if (autoRestart) {
+          respawnTimeout = setTimeout(() => {
+            resetGame();
+          }, 1400);
+        }
       }
     }
 
@@ -351,9 +372,9 @@
         ctx.fillStyle = "#fff";
         ctx.font = "32px 'Press Start 2P', 'Segoe UI', sans-serif";
         ctx.textAlign = "center";
-        ctx.fillText(victory ? "You win!" : "Game Over", canvas.width / 2, canvas.height / 2 - 10);
+        ctx.fillText(overlayText || (victory ? "You win!" : "Game Over"), canvas.width / 2, canvas.height / 2 - 10);
         ctx.font = "20px 'Segoe UI', sans-serif";
-        ctx.fillText("Press Enter to restart", canvas.width / 2, canvas.height / 2 + 24);
+        ctx.fillText(overlaySubtext || "Press Enter to restart", canvas.width / 2, canvas.height / 2 + 24);
       }
     }
 
