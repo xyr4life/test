@@ -1,0 +1,405 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Mini Mario Platformer</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --sky: #7ec0ee;
+      --ground: #8b5a2b;
+      --grass: #70b62c;
+      --brick: #c96a32;
+      --coin: gold;
+      --enemy: #c0392b;
+      --player: #e67e22;
+    }
+
+    body {
+      margin: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      background: radial-gradient(circle at 20% 20%, #ffffff60, transparent 35%),
+        radial-gradient(circle at 80% 10%, #ffffff60, transparent 40%),
+        var(--sky);
+      font-family: "Segoe UI", system-ui, sans-serif;
+      color: #1c1c1c;
+    }
+
+    #frame {
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.35);
+      border: 6px solid #111;
+      border-radius: 16px;
+      overflow: hidden;
+      background: linear-gradient(#7ec0ee 60%, #c5e9ff 100%);
+    }
+
+    canvas {
+      display: block;
+      background: transparent;
+    }
+
+    #hud {
+      position: absolute;
+      top: 16px;
+      left: 50%;
+      transform: translateX(-50%);
+      display: flex;
+      gap: 16px;
+      background: rgba(0, 0, 0, 0.35);
+      color: #fff;
+      padding: 8px 16px;
+      border-radius: 999px;
+      font-weight: 700;
+      letter-spacing: 0.05em;
+      text-shadow: 0 2px 4px rgba(0, 0, 0, 0.6);
+      backdrop-filter: blur(4px);
+      box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.2);
+    }
+
+    #wrapper {
+      position: relative;
+    }
+  </style>
+</head>
+<body>
+  <div id="wrapper">
+    <div id="hud">
+      <div id="coins">Coins: 0</div>
+      <div id="status">Move with ← →, Jump with W/↑/Space</div>
+    </div>
+    <div id="frame">
+      <canvas id="game" width="900" height="520" aria-label="Mini Mario game"></canvas>
+    </div>
+  </div>
+
+  <script>
+    const canvas = document.getElementById("game");
+    const ctx = canvas.getContext("2d");
+    const hudCoins = document.getElementById("coins");
+    const hudStatus = document.getElementById("status");
+
+    const GRAVITY = 0.5;
+    const FRICTION = 0.8;
+    const MOVE_SPEED = 0.7;
+    const MAX_X_SPEED = 5;
+    const JUMP_FORCE = 11;
+
+    const keys = new Set();
+    let gameOver = false;
+    let victory = false;
+    let respawnTimeout = null;
+    let overlayText = "";
+    let overlaySubtext = "";
+
+    const player = {
+      w: 34,
+      h: 48,
+      x: 120,
+      y: 0,
+      vx: 0,
+      vy: 0,
+      onGround: false,
+    };
+
+    function createLevel() {
+      const platforms = [
+        { x: 0, y: canvas.height - 50, w: canvas.width, h: 80, type: "ground" },
+        { x: 180, y: 380, w: 150, h: 30, type: "platform" },
+        { x: 380, y: 310, w: 160, h: 30, type: "platform" },
+        { x: 620, y: 250, w: 160, h: 30, type: "platform" },
+        { x: 760, y: 430, w: 110, h: 30, type: "platform" },
+        { x: 500, y: 450, w: 110, h: 30, type: "platform" },
+        { x: 320, y: 200, w: 110, h: 30, type: "platform" },
+      ];
+
+      const coins = [
+        { x: 220, y: 330, r: 10, taken: false },
+        { x: 430, y: 260, r: 10, taken: false },
+        { x: 660, y: 200, r: 10, taken: false },
+        { x: 820, y: 380, r: 10, taken: false },
+        { x: 360, y: 150, r: 10, taken: false },
+        { x: 540, y: 400, r: 10, taken: false },
+      ];
+
+      const enemies = [
+        { x: 520, y: canvas.height - 82, w: 36, h: 28, vx: 1.2, range: [500, 720], alive: true },
+        { x: 360, y: 352, w: 36, h: 28, vx: -1.1, range: [320, 470], alive: true },
+      ];
+
+      return { platforms, coins, enemies };
+    }
+
+    let level = createLevel();
+
+    function resetPlayer() {
+      player.x = 120;
+      player.y = 120;
+      player.vx = 0;
+      player.vy = 0;
+      player.onGround = false;
+    }
+
+    function resetGame() {
+      if (respawnTimeout) {
+        clearTimeout(respawnTimeout);
+        respawnTimeout = null;
+      }
+      level = createLevel();
+      gameOver = false;
+      victory = false;
+      overlayText = "";
+      overlaySubtext = "";
+      hudStatus.textContent = "Move with ← →, Jump with W/↑/Space";
+      resetPlayer();
+      updateCoins();
+    }
+
+    function updateCoins() {
+      const collected = level.coins.filter((c) => c.taken).length;
+      hudCoins.textContent = `Coins: ${collected}/${level.coins.length}`;
+      if (collected === level.coins.length && !victory) {
+        victory = true;
+        hudStatus.textContent = "You collected all coins! Press Enter to replay.";
+        overlayText = "You win!";
+        overlaySubtext = "Press Enter to restart";
+        gameOver = true;
+      }
+    }
+
+    function rectsOverlap(a, b) {
+      return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+    }
+
+    function handleInput() {
+      if (gameOver) return;
+
+      if (keys.has("ArrowLeft") || keys.has("a")) {
+        player.vx -= MOVE_SPEED;
+      }
+      if (keys.has("ArrowRight") || keys.has("d")) {
+        player.vx += MOVE_SPEED;
+      }
+      if ((keys.has("ArrowUp") || keys.has("w") || keys.has(" ")) && player.onGround) {
+        player.vy = -JUMP_FORCE;
+        player.onGround = false;
+      }
+    }
+
+    function applyPhysics() {
+      player.vx = Math.max(-MAX_X_SPEED, Math.min(MAX_X_SPEED, player.vx));
+      player.vy += GRAVITY;
+
+      let newX = player.x + player.vx;
+      let newY = player.y + player.vy;
+
+      player.onGround = false;
+
+      // Horizontal collisions
+      for (const plat of level.platforms) {
+        if (newY + player.h > plat.y && newY < plat.y + plat.h) {
+          if (player.vx > 0 && player.x + player.w <= plat.x && newX + player.w > plat.x) {
+            newX = plat.x - player.w;
+            player.vx = 0;
+          }
+          if (player.vx < 0 && player.x >= plat.x + plat.w && newX < plat.x + plat.w) {
+            newX = plat.x + plat.w;
+            player.vx = 0;
+          }
+        }
+      }
+
+      player.x = newX;
+
+      // Vertical collisions
+      for (const plat of level.platforms) {
+        if (newX + player.w > plat.x && newX < plat.x + plat.w) {
+          if (player.vy > 0 && player.y + player.h <= plat.y && newY + player.h > plat.y) {
+            newY = plat.y - player.h;
+            player.vy = 0;
+            player.onGround = true;
+          }
+          if (player.vy < 0 && player.y >= plat.y + plat.h && newY < plat.y + plat.h) {
+            newY = plat.y + plat.h;
+            player.vy = 0.5;
+          }
+        }
+      }
+
+      player.y = newY;
+
+      if (player.onGround) {
+        player.vx *= FRICTION;
+        if (Math.abs(player.vx) < 0.05) player.vx = 0;
+      }
+
+      // Death from falling
+      if (player.y > canvas.height + 200) {
+        endGame("You fell! Respawning...", { autoRestart: true });
+      }
+    }
+
+    function updateCoinsAndEnemies() {
+      for (const coin of level.coins) {
+        if (coin.taken) continue;
+        const coinBox = { x: coin.x - coin.r, y: coin.y - coin.r, w: coin.r * 2, h: coin.r * 2 };
+        if (rectsOverlap(player, coinBox)) {
+          coin.taken = true;
+          updateCoins();
+        }
+      }
+
+      for (const enemy of level.enemies) {
+        if (!enemy.alive) continue;
+        enemy.x += enemy.vx;
+        if (enemy.x < enemy.range[0] || enemy.x + enemy.w > enemy.range[1]) {
+          enemy.vx *= -1;
+        }
+
+        const enemyBox = { x: enemy.x, y: enemy.y, w: enemy.w, h: enemy.h };
+        if (rectsOverlap(player, enemyBox)) {
+          if (player.vy > 1 && player.y + player.h - enemy.y < 14) {
+            enemy.alive = false;
+            player.vy = -9;
+          } else {
+            endGame("Stomped by a Goomba! Respawning...", { autoRestart: true });
+          }
+        }
+      }
+    }
+
+    function endGame(message, { autoRestart = false } = {}) {
+      if (!gameOver) {
+        gameOver = true;
+        hudStatus.textContent = message;
+        overlayText = victory ? "You win!" : message;
+        overlaySubtext = autoRestart
+          ? "Respawning shortly..."
+          : "Press Enter to restart";
+
+        if (autoRestart) {
+          respawnTimeout = setTimeout(() => {
+            resetGame();
+          }, 1400);
+        }
+      }
+    }
+
+    function drawBackground() {
+      ctx.fillStyle = "#87d1ff";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      // Clouds
+      const clouds = [
+        { x: 80, y: 70 },
+        { x: 360, y: 40 },
+        { x: 640, y: 90 },
+      ];
+      ctx.fillStyle = "#fff";
+      clouds.forEach(({ x, y }) => {
+        ctx.beginPath();
+        ctx.arc(x, y, 24, 0, Math.PI * 2);
+        ctx.arc(x + 26, y + 4, 20, 0, Math.PI * 2);
+        ctx.arc(x - 24, y + 8, 18, 0, Math.PI * 2);
+        ctx.fill();
+      });
+    }
+
+    function drawPlatforms() {
+      level.platforms.forEach((p) => {
+        ctx.fillStyle = p.type === "ground" ? "var(--ground)" : "var(--brick)";
+        ctx.fillRect(p.x, p.y, p.w, p.h);
+        if (p.type === "ground") {
+          ctx.fillStyle = "var(--grass)";
+          ctx.fillRect(p.x, p.y, p.w, 12);
+        }
+      });
+    }
+
+    function drawCoins() {
+      level.coins.forEach((c) => {
+        if (c.taken) return;
+        ctx.fillStyle = "var(--coin)";
+        ctx.beginPath();
+        ctx.ellipse(c.x, c.y, c.r, c.r * 1.4, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = "#fefefe";
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(c.x, c.y, c.r * 0.5, 0, Math.PI * 2);
+        ctx.stroke();
+      });
+    }
+
+    function drawEnemies() {
+      level.enemies.forEach((e) => {
+        if (!e.alive) return;
+        ctx.fillStyle = "var(--enemy)";
+        ctx.fillRect(e.x, e.y, e.w, e.h);
+        ctx.fillStyle = "#fff";
+        ctx.fillRect(e.x + 6, e.y + 6, 8, 8);
+        ctx.fillRect(e.x + e.w - 14, e.y + 6, 8, 8);
+        ctx.fillStyle = "#111";
+        ctx.fillRect(e.x + 8, e.y + 8, 4, 4);
+        ctx.fillRect(e.x + e.w - 12, e.y + 8, 4, 4);
+      });
+    }
+
+    function drawPlayer() {
+      ctx.fillStyle = "var(--player)";
+      ctx.fillRect(player.x, player.y, player.w, player.h);
+      ctx.fillStyle = "#ffd58a";
+      ctx.fillRect(player.x + 8, player.y + 10, player.w - 16, player.h - 26);
+      ctx.fillStyle = "#111";
+      ctx.fillRect(player.x + 6, player.y + 6, 6, 6);
+      ctx.fillRect(player.x + player.w - 12, player.y + 6, 6, 6);
+      ctx.fillRect(player.x + 10, player.y + player.h - 8, player.w - 20, 6);
+    }
+
+    function drawGame() {
+      drawBackground();
+      drawPlatforms();
+      drawCoins();
+      drawEnemies();
+      drawPlayer();
+
+      if (gameOver) {
+        ctx.fillStyle = "rgba(0, 0, 0, 0.65)";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = "#fff";
+        ctx.font = "32px 'Press Start 2P', 'Segoe UI', sans-serif";
+        ctx.textAlign = "center";
+        ctx.fillText(overlayText || (victory ? "You win!" : "Game Over"), canvas.width / 2, canvas.height / 2 - 10);
+        ctx.font = "20px 'Segoe UI', sans-serif";
+        ctx.fillText(overlaySubtext || "Press Enter to restart", canvas.width / 2, canvas.height / 2 + 24);
+      }
+    }
+
+    function update() {
+      handleInput();
+      applyPhysics();
+      updateCoinsAndEnemies();
+      drawGame();
+      requestAnimationFrame(update);
+    }
+
+    function bindControls() {
+      window.addEventListener("keydown", (e) => {
+        keys.add(e.key);
+        if (e.key === "Enter" && gameOver) {
+          resetGame();
+        }
+      });
+      window.addEventListener("keyup", (e) => keys.delete(e.key));
+    }
+
+    // Initialize
+    bindControls();
+    resetGame();
+    requestAnimationFrame(update);
+  </script>
+</body>
+</html>
