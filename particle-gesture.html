@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Gemini 风格粒子手势交互</title>
+  <style>
+    :root {
+      color-scheme: dark;
+    }
+    html, body {
+      margin: 0;
+      padding: 0;
+      height: 100%;
+      background: radial-gradient(circle at 20% 20%, #1b1f3a, #07080f 60%, #000);
+      overflow: hidden;
+      font-family: "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+      color: #e5f2ff;
+    }
+    canvas {
+      display: block;
+      width: 100vw;
+      height: 100vh;
+    }
+    .hud {
+      position: fixed;
+      inset: 20px auto auto 20px;
+      background: rgba(8, 12, 28, 0.72);
+      border: 1px solid rgba(96, 152, 255, 0.4);
+      border-radius: 14px;
+      padding: 14px 18px;
+      box-shadow: 0 20px 50px rgba(0, 0, 0, 0.45);
+      backdrop-filter: blur(10px);
+      max-width: 340px;
+      z-index: 2;
+    }
+    .hud h1 {
+      font-size: 18px;
+      margin: 0 0 8px 0;
+      letter-spacing: 0.5px;
+    }
+    .hud p {
+      font-size: 13px;
+      margin: 4px 0;
+      line-height: 1.4;
+      color: #bcd8ff;
+    }
+    .status {
+      margin-top: 10px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 12px;
+      color: #90c6ff;
+    }
+    .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #ff6f91;
+      box-shadow: 0 0 12px #ff6f91;
+      transition: background 0.3s ease, box-shadow 0.3s ease;
+    }
+    .dot.active {
+      background: #6dffb5;
+      box-shadow: 0 0 12px #6dffb5;
+    }
+    .tips {
+      position: fixed;
+      inset: auto 20px 20px auto;
+      font-size: 12px;
+      padding: 10px 14px;
+      background: rgba(4, 10, 20, 0.6);
+      border: 1px solid rgba(98, 176, 255, 0.3);
+      border-radius: 999px;
+      z-index: 2;
+      color: #bcd8ff;
+    }
+    video {
+      position: fixed;
+      inset: auto 20px 20px 20px;
+      width: 180px;
+      border-radius: 14px;
+      border: 1px solid rgba(96, 152, 255, 0.3);
+      box-shadow: 0 12px 30px rgba(0, 0, 0, 0.4);
+      opacity: 0.2;
+      transition: opacity 0.4s ease;
+      z-index: 1;
+    }
+    video.active {
+      opacity: 0.55;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="canvas"></canvas>
+  <div class="hud">
+    <h1>Gemini 粒子手势交互</h1>
+    <p>张开手掌触发「引力场」，五指并拢触发「粒子爆裂」。</p>
+    <p>如果没有摄像头权限，可用鼠标/触控拖拽进行交互。</p>
+    <div class="status">
+      <span class="dot" id="status-dot"></span>
+      <span id="status-text">正在初始化摄像头...</span>
+    </div>
+  </div>
+  <div class="tips">拖拽手势 / 鼠标 ↔ 粒子响应</div>
+  <video id="video" playsinline></video>
+
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+
+  <script>
+    const canvas = document.getElementById("canvas");
+    const ctx = canvas.getContext("2d");
+    const video = document.getElementById("video");
+    const statusDot = document.getElementById("status-dot");
+    const statusText = document.getElementById("status-text");
+
+    let width = window.innerWidth;
+    let height = window.innerHeight;
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = width * dpr;
+    canvas.height = height * dpr;
+    ctx.scale(dpr, dpr);
+
+    const particles = [];
+    const pointer = {
+      x: width / 2,
+      y: height / 2,
+      active: false,
+      spread: 0.5,
+      pinch: false,
+    };
+
+    const colors = ["#6ef3ff", "#7cf6c3", "#b28dff", "#ff8fd4", "#ffe29e"];
+
+    function resize() {
+      width = window.innerWidth;
+      height = window.innerHeight;
+      canvas.width = width * dpr;
+      canvas.height = height * dpr;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    }
+
+    window.addEventListener("resize", resize);
+
+    function createParticle() {
+      const angle = Math.random() * Math.PI * 2;
+      const radius = Math.random() * Math.min(width, height) * 0.45;
+      return {
+        x: width / 2 + Math.cos(angle) * radius,
+        y: height / 2 + Math.sin(angle) * radius,
+        vx: (Math.random() - 0.5) * 0.6,
+        vy: (Math.random() - 0.5) * 0.6,
+        size: 1 + Math.random() * 2.4,
+        hue: colors[Math.floor(Math.random() * colors.length)],
+      };
+    }
+
+    for (let i = 0; i < 900; i += 1) {
+      particles.push(createParticle());
+    }
+
+    function drawBackground() {
+      ctx.fillStyle = "rgba(4, 8, 20, 0.22)";
+      ctx.fillRect(0, 0, width, height);
+    }
+
+    function updateParticles() {
+      const influenceRadius = pointer.active ? 220 : 120;
+      const strength = pointer.pinch ? 0.22 : 0.08;
+
+      for (const p of particles) {
+        const dx = pointer.x - p.x;
+        const dy = pointer.y - p.y;
+        const dist = Math.sqrt(dx * dx + dy * dy) || 0.001;
+        if (dist < influenceRadius) {
+          const force = (1 - dist / influenceRadius) * strength;
+          p.vx += (dx / dist) * force;
+          p.vy += (dy / dist) * force;
+        }
+
+        const drift = Math.sin((p.y / height) * Math.PI * 2 + Date.now() * 0.0003) * 0.02;
+        p.vx += drift;
+        p.vy += Math.cos((p.x / width) * Math.PI * 2) * 0.01;
+
+        p.vx *= 0.98;
+        p.vy *= 0.98;
+        p.x += p.vx;
+        p.y += p.vy;
+
+        if (p.x < -50 || p.x > width + 50 || p.y < -50 || p.y > height + 50) {
+          Object.assign(p, createParticle());
+        }
+      }
+    }
+
+    function drawParticles() {
+      ctx.save();
+      ctx.globalCompositeOperation = "lighter";
+      for (const p of particles) {
+        ctx.beginPath();
+        ctx.fillStyle = p.hue;
+        ctx.shadowColor = p.hue;
+        ctx.shadowBlur = 10;
+        ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.restore();
+    }
+
+    function render() {
+      drawBackground();
+      updateParticles();
+      drawParticles();
+      requestAnimationFrame(render);
+    }
+
+    function setStatus(active, message) {
+      statusDot.classList.toggle("active", active);
+      statusText.textContent = message;
+      video.classList.toggle("active", active);
+    }
+
+    function handleResults(results) {
+      if (!results.multiHandLandmarks || results.multiHandLandmarks.length === 0) {
+        pointer.active = false;
+        return;
+      }
+
+      const landmarks = results.multiHandLandmarks[0];
+      const indexTip = landmarks[8];
+      const thumbTip = landmarks[4];
+
+      pointer.active = true;
+      pointer.x = (1 - indexTip.x) * width;
+      pointer.y = indexTip.y * height;
+
+      const pinchDistance = Math.hypot(
+        indexTip.x - thumbTip.x,
+        indexTip.y - thumbTip.y
+      );
+      pointer.pinch = pinchDistance < 0.06;
+
+      if (pointer.pinch) {
+        for (let i = 0; i < 20; i += 1) {
+          particles.push({
+            x: pointer.x,
+            y: pointer.y,
+            vx: (Math.random() - 0.5) * 6,
+            vy: (Math.random() - 0.5) * 6,
+            size: 1 + Math.random() * 2.8,
+            hue: colors[Math.floor(Math.random() * colors.length)],
+          });
+        }
+        if (particles.length > 1200) {
+          particles.splice(0, particles.length - 1200);
+        }
+      }
+    }
+
+    async function initCamera() {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+        video.srcObject = stream;
+        await video.play();
+
+        const hands = new Hands({
+          locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`,
+        });
+        hands.setOptions({
+          maxNumHands: 1,
+          modelComplexity: 1,
+          minDetectionConfidence: 0.7,
+          minTrackingConfidence: 0.6,
+        });
+        hands.onResults(handleResults);
+
+        const camera = new Camera(video, {
+          onFrame: async () => {
+            await hands.send({ image: video });
+          },
+          width: 640,
+          height: 480,
+        });
+
+        camera.start();
+        setStatus(true, "手势识别中 · 张开手掌或并拢手指");
+      } catch (error) {
+        console.warn("Camera init failed", error);
+        setStatus(false, "无法访问摄像头，已启用鼠标模式");
+      }
+    }
+
+    function setupPointerFallback() {
+      const activate = (event) => {
+        pointer.active = true;
+        pointer.x = event.clientX;
+        pointer.y = event.clientY;
+      };
+
+      window.addEventListener("mousemove", (event) => {
+        activate(event);
+      });
+      window.addEventListener("mousedown", (event) => {
+        activate(event);
+        pointer.pinch = true;
+      });
+      window.addEventListener("mouseup", () => {
+        pointer.pinch = false;
+      });
+      window.addEventListener("touchmove", (event) => {
+        const touch = event.touches[0];
+        if (!touch) return;
+        pointer.active = true;
+        pointer.x = touch.clientX;
+        pointer.y = touch.clientY;
+      });
+      window.addEventListener("touchstart", () => {
+        pointer.pinch = true;
+      });
+      window.addEventListener("touchend", () => {
+        pointer.pinch = false;
+      });
+    }
+
+    setupPointerFallback();
+    initCamera();
+    render();
+  </script>
+</body>
+</html>
