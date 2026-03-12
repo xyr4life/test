@@ -27,7 +27,9 @@ uvicorn app:app --reload
 
 程序已改为**只读取真实历史开奖数据**，不再使用随机模拟历史。
 
-默认读取路径：`data/ssq_history.csv`（可通过环境变量 `SSQ_HISTORY_CSV` 覆盖）。
+仓库已提供结果文件位置：`data/ssq_last_10_years.csv`（当前环境网络受限时可先用该文件路径）。
+
+默认读取路径：`data/ssq_last_10_years.csv`（可通过环境变量 `SSQ_HISTORY_CSV` 覆盖）。
 
 ### CSV 格式（任选一种）
 
@@ -49,7 +51,7 @@ issue,date,red,blue
 
 ### 启动前检查
 
-- 确保文件存在：`data/ssq_history.csv`
+- 确保文件存在：`data/ssq_last_10_years.csv`
 - 红球范围 `1-33` 且不重复，共 6 个
 - 蓝球范围 `1-16`
 
@@ -59,7 +61,7 @@ issue,date,red,blue
 python3 scripts/fetch_ssq_history.py
 ```
 
-执行成功后会生成：`data/ssq_history.csv`。
+执行成功后会生成：`data/ssq_history.csv`，你也可以改名为 `data/ssq_last_10_years.csv` 直接使用。
 
 如果你希望使用自定义文件路径，也可以：
 

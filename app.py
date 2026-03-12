@@ -19,7 +19,7 @@ from starlette.requests import Request
 app = FastAPI(title="Lottery Recommendation Demo", version="0.2.0")
 
 BASE_DIR = Path(__file__).parent
-DEFAULT_HISTORY_CSV = BASE_DIR / "data" / "ssq_history.csv"
+DEFAULT_HISTORY_CSV = BASE_DIR / "data" / "ssq_last_10_years.csv"
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
 
