@@ -15,6 +15,7 @@
 conda create -n lottery-demo python=3.10 -y
 conda activate lottery-demo
 pip install -r requirements.txt
+# 先准备真实历史数据 CSV（见下方“2) 真实数据准备”）
 uvicorn app:app --reload
 ```
 
@@ -22,7 +23,37 @@ uvicorn app:app --reload
 启动后打开：
 - http://127.0.0.1:8000
 
-## 2) API 示例
+## 2) 真实数据准备
+
+程序已改为**只读取真实历史开奖数据**，不再使用随机模拟历史。
+
+默认读取路径：`data/ssq_history.csv`（可通过环境变量 `SSQ_HISTORY_CSV` 覆盖）。
+
+### CSV 格式（任选一种）
+
+格式 A（推荐）：
+
+```csv
+issue,date,red1,red2,red3,red4,red5,red6,blue
+2024001,2024-01-02,3,8,12,19,24,31,9
+```
+
+格式 B：
+
+```csv
+issue,date,red,blue
+2024001,2024-01-02,"03 08 12 19 24 31",9
+```
+
+> 说明：上面只展示格式示例，实际请替换为你收集的真实历史开奖数据。
+
+### 启动前检查
+
+- 确保文件存在：`data/ssq_history.csv`
+- 红球范围 `1-33` 且不重复，共 6 个
+- 蓝球范围 `1-16`
+
+## 3) API 示例
 
 ### `POST /api/predict`
 
@@ -39,7 +70,7 @@ uvicorn app:app --reload
 
 ```json
 {
-  "modelVersion": "demo-rule-v1",
+  "modelVersion": "demo-rule-v2-real-data",
   "generatedAt": "2026-03-12T10:00:00",
   "numbers": [
     {"red": [3, 8, 12, 19, 24, 31], "blue": 9, "score": 1.934}
@@ -48,14 +79,14 @@ uvicorn app:app --reload
 }
 ```
 
-## 3) 代码结构
+## 4) 代码结构
 
 - `app.py`：FastAPI 服务、评分器、接口
 - `templates/index.html`：前端页面和按钮逻辑
 - `static/style.css`：页面样式
 - `requirements.txt`：依赖
 
-## 4) 当前评分逻辑（baseline）
+## 5) 当前评分逻辑（baseline）
 
 后端会随机采样大量合法号码组合，并按规则打分后取 Top 5：
 - 历史频率得分（红球/蓝球）
@@ -66,7 +97,7 @@ uvicorn app:app --reload
 
 你后续可以把这部分替换成 LightGBM/XGBoost 排序模型。
 
-## 5) 如何把这 5 个文件下载到你本地
+## 6) 如何把这 5 个文件下载到你本地
 
 如果你只想拿到这次生成的 5 个核心文件（`app.py`、`requirements.txt`、`Readme.md`、`templates/index.html`、`static/style.css`），推荐下面三种方式。
 
