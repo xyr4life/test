@@ -9,6 +9,17 @@
 
 ## 1) 本地运行
 
+### 方式 A：Anaconda / Miniconda（推荐给你）
+
+```bash
+conda create -n lottery-demo python=3.10 -y
+conda activate lottery-demo
+pip install -r requirements.txt
+uvicorn app:app --reload
+```
+
+### 方式 B：venv（不使用 conda 时）
+
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
