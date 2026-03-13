@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>彩票号码推荐 Demo</title>
+    <link rel="stylesheet" href="/static/style.css" />
+  </head>
+  <body>
+    <main class="container">
+      <h1>彩票号码推荐 Demo</h1>
+      <p class="tip">点击按钮生成 5 组候选号码（仅供娱乐）。</p>
+
+      <div class="controls">
+        <label for="lotteryType">彩票类型</label>
+        <select id="lotteryType">
+          <option value="ssq">双色球（ssq）</option>
+        </select>
+        <button id="generateBtn">生成预测号码</button>
+      </div>
+
+      <section>
+        <h2>推荐结果</h2>
+        <ul id="resultList"></ul>
+      </section>
+
+      <p id="meta" class="meta"></p>
+      <p class="disclaimer">免责声明：本系统不保证中奖，仅用于学习与演示。</p>
+    </main>
+
+    <script>
+      const btn = document.getElementById('generateBtn');
+      const resultList = document.getElementById('resultList');
+      const meta = document.getElementById('meta');
+
+      btn.addEventListener('click', async () => {
+        btn.disabled = true;
+        btn.textContent = '生成中...';
+        resultList.innerHTML = '';
+        meta.textContent = '';
+
+        try {
+          const res = await fetch('/api/predict', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ lotteryType: 'ssq', count: 5 }),
+          });
+
+          if (!res.ok) {
+            throw new Error('请求失败：' + res.status);
+          }
+
+          const data = await res.json();
+          data.numbers.forEach((item, index) => {
+            const li = document.createElement('li');
+            li.className = 'result-item';
+            const red = item.red.map(n => String(n).padStart(2, '0')).join(' ');
+            const blue = String(item.blue).padStart(2, '0');
+            li.textContent = `#${index + 1} 红球: ${red} | 蓝球: ${blue} | 分数: ${item.score}`;
+            resultList.appendChild(li);
+          });
+
+          meta.textContent = `模型版本：${data.modelVersion}，生成时间：${data.generatedAt}`;
+        } catch (err) {
+          meta.textContent = '生成失败，请稍后重试。';
+        } finally {
+          btn.disabled = false;
+          btn.textContent = '生成预测号码';
+        }
+      });
+    </script>
+  </body>
+</html>
